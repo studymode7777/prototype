@@ -2,17 +2,26 @@ import streamlit as st
 import pandas as pd
 import os
 
-# --- 1. DATABASE ENGINE (Synced Headers) ---
+# --- 1. SELF-HEALING DATABASE ENGINE ---
 def init_db():
-    # We define exactly 5 columns for Students and Companies to match the forms below
-    files = {
+    # Define the exact required structure
+    schema = {
         "students.csv": ["Name", "Email", "Password", "Branch", "CGPA"],
         "companies.csv": ["Company_Name", "Email", "Password", "Role_Offered", "Package"],
         "apps.csv": ["Student_Email", "Company_Name", "Status"]
     }
-    for file, cols in files.items():
+    
+    for file, required_cols in schema.items():
         if not os.path.exists(file):
-            pd.DataFrame(columns=cols).to_csv(file, index=False)
+            # Create fresh if missing
+            pd.DataFrame(columns=required_cols).to_csv(file, index=False)
+        else:
+            # CHECK FOR COLUMN MISMATCH (The cause of your ValueError)
+            df = pd.read_csv(file)
+            if list(df.columns) != required_cols:
+                # Force reset the file to the correct headers
+                pd.DataFrame(columns=required_cols).to_csv(file, index=False)
+                st.sidebar.warning(f"Re-indexed {file} to fix column mismatch.")
 
 init_db()
 
@@ -39,14 +48,14 @@ choice = st.sidebar.selectbox("Navigate To", menu)
 # --- 4. HOME PAGE ---
 if choice == "Home":
     st.title("🎓 College Placement Management System")
-    st.write("A simplified platform for campus recruitment and application tracking.")
-    st.info("👈 Use the sidebar to select your portal.")
+    st.write("Streamlined portal for Students, Recruiters, and Admins.")
+    
 
 # --- 5. STUDENT ZONE ---
 elif choice == "Student Zone":
     if st.session_state.role != "student":
         st.header("👨‍🎓 Student Access")
-        t1, t2 = st.tabs(["Login", "New Registration"])
+        t1, t2 = st.tabs(["Login", "Register"])
         with t2:
             with st.form("stu_reg"):
                 n = st.text_input("Full Name")
@@ -58,10 +67,9 @@ elif choice == "Student Zone":
                     df = pd.read_csv("students.csv")
                     if e in df['Email'].values: st.error("Email exists!")
                     else:
-                        # Must be exactly 5 items to match 5 columns
                         new_stu = pd.DataFrame([[n, e, p, b, c]], columns=df.columns)
                         pd.concat([df, new_stu]).to_csv("students.csv", index=False)
-                        st.success("Registered! Go to Login.")
+                        st.success("Registered! Login now.")
         with t1:
             le, lp = st.text_input("Email").lower().strip(), st.text_input("Password", type="password")
             if st.button("Student Login"):
@@ -75,9 +83,8 @@ elif choice == "Student Zone":
         st.header(f"Welcome Student!")
         apps = pd.read_csv("apps.csv")
         my_apps = apps[apps['Student_Email'] == st.session_state.user]
-        st.subheader("My Application Status")
-        if my_apps.empty: st.info("No applications yet.")
-        else: st.dataframe(my_apps, use_container_width=True)
+        st.subheader("My Applications")
+        st.dataframe(my_apps, use_container_width=True) if not my_apps.empty else st.info("No applications yet.")
 
 # --- 6. COMPANY ZONE ---
 elif choice == "Company Zone":
@@ -93,10 +100,10 @@ elif choice == "Company Zone":
                 ck = st.text_input("Package (e.g. 12 LPA)")
                 if st.form_submit_button("Register Company"):
                     df = pd.read_csv("companies.csv")
-                    # Must be exactly 5 items to match 5 columns
+                    # Fixed 5-item list for 5-column CSV
                     new_comp = pd.DataFrame([[cn, ce, cp, cr, ck]], columns=df.columns)
                     pd.concat([df, new_comp]).to_csv("companies.csv", index=False)
-                    st.success("Company Profile Created!")
+                    st.success("Company Registered!")
         with t1:
             cle, clp = st.text_input("Email").lower().strip(), st.text_input("Password", type="password")
             if st.button("Company Login"):
@@ -149,9 +156,10 @@ elif choice == "Admin Dashboard":
     if pw == "admin123":
         s_df, c_df, a_df = pd.read_csv("students.csv"), pd.read_csv("companies.csv"), pd.read_csv("apps.csv")
         st.metric("Total Applications", len(a_df))
-        st.write("### All Applications")
+        st.write("### Live Application Log")
         st.dataframe(a_df, use_container_width=True)
-        if st.button("🚨 Clear All Data", type="primary"):
+        if st.button("🚨 Wipe All Databases", type="primary"):
             for f in ["students.csv", "companies.csv", "apps.csv"]:
-                pd.read_csv(f).iloc[0:0].to_csv(f, index=False)
+                os.remove(f) if os.path.exists(f) else None
+            init_db()
             st.rerun()
